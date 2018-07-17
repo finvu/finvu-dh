@@ -1,0 +1,25 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.ctpl.finvu</groupId>
+  <artifactId>finvu-dh</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>Finvu Diffie Hellman Example</name>
+  <description>Example project demonstrating Finvu Diffie Hellman end ot end encryption</description>
+  <properties>
+  	<maven.compiler.source>1.8</maven.compiler.source>
+  	<maven.compiler.target>1.8</maven.compiler.target>
+  </properties>
+  <dependencyManagement>
+  	<dependencies>
+		<dependency>
+		  <groupId>org.whispersystems</groupId>
+		  <artifactId>curve25519-java</artifactId>
+		  <version>0.5.0</version>
+		</dependency>
+  	</dependencies>
+  </dependencyManagement>
+  <modules>
+  	<module>finvu-dh-ref</module>
+  </modules>
+</project>
