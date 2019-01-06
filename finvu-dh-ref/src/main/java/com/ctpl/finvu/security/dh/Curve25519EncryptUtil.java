@@ -1,3 +1,18 @@
+/*
+ * Copyright 2002-2019 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.ctpl.finvu.security.dh;
 
 import java.io.IOException;
@@ -12,6 +27,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -22,73 +38,36 @@ import javax.crypto.spec.SecretKeySpec;
 import org.whispersystems.curve25519.Curve25519;
 import org.whispersystems.curve25519.Curve25519KeyPair;
 
-public class Curve25519EncryptUtil {
-	
-	RandomString randSessionIdGen;
-	
-	public Curve25519EncryptUtil() {
-		randSessionIdGen = new RandomString();
-	}
-	
-	/**
-	 * Generate a Diffie Hellman Key Pair.
-	 * @return
+/**
+ * @author praveenp
+ *
+ */
+public class Curve25519EncryptUtil implements EncryptUtil {
+
+	/* (non-Javadoc)
+	 * @see com.ctpl.finvu.common.security.auth.dh.EncryptUtil#generateDHKeyPair()
 	 */
+	@Override
 	public KeyPair generateDHKeyPair() {
 		Curve25519KeyPair keyPair = Curve25519.getInstance(Curve25519.BEST).generateKeyPair();
 		return Curve25519Wrapper.getKeyPair(keyPair);
 	}
-	
-	/**
-	 * Parse the encoded (Base64) pubKey and pvtKey and create a Key Pair.
-	 * @param pubKey
-	 * @param pvtKey
-	 * @return
+
+	/* (non-Javadoc)
+	 * @see com.ctpl.finvu.common.security.auth.dh.EncryptUtil#parseKeyPair(java.lang.String, java.lang.String)
 	 */
+	@Override
 	public KeyPair parseKeyPair(String pubKey, String pvtKey) {
 		byte[] pubKeyB = decode(pubKey);
 		byte[] pvtKeyB = decode(pvtKey);
 		return Curve25519Wrapper.getKeyPair(pubKeyB, pvtKeyB);
 	}
-	
-	/**
-	 * Get Base64 encoded public key from the keyPair.
-	 * 
-	 * @param keyPair
-	 * @return
+
+	/* (non-Javadoc)
+	 * @see com.ctpl.finvu.common.security.auth.dh.EncryptUtil#encrypt(byte[], java.lang.String)
 	 */
-	public String getEncodedPubKey(KeyPair keyPair) {
-		byte[] pubKeyEnc = keyPair.getPublic().getEncoded();
-		return Base64.getEncoder().encodeToString(pubKeyEnc);
-	}
-	
-	/**
-	 * Get Base64 encoded private key from keyPair.
-	 * 
-	 * @param keyPair
-	 * @return
-	 */
-	public String getEncodedPrivateKey(KeyPair keyPair) {
-		byte[] pubKeyEnc = keyPair.getPrivate().getEncoded();
-		return Base64.getEncoder().encodeToString(pubKeyEnc);		
-	}
-	
-	/**
-	 * Encrypt message using our KeyPair, remote Public key and remote session id.
-	 * 
-	 * @param message
-	 * @param ourKeyPair
-	 * @param encodedRemotePubKey
-	 * @param sessionId
-	 * @return
-	 * @throws NoSuchAlgorithmException
-	 * @throws NoSuchPaddingException
-	 * @throws InvalidKeyException
-	 * @throws BadPaddingException
-	 * @throws IllegalBlockSizeException
-	 * @throws IOException
-	 */
-	public CryptoObject encrypt(byte[] message, KeyPair ourKeyPair, String encodedRemotePubKey, String remoteSessionId)
+	@Override
+	public CryptoObject encrypt(byte[] message, KeyPair ourKeyPair, String encodedRemotePubKey, String remoteNonce)
 			throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, BadPaddingException,
 			IllegalBlockSizeException, IOException {
 		
@@ -99,46 +78,34 @@ public class Curve25519EncryptUtil {
 		Curve25519 curve25519 = Curve25519.getInstance(Curve25519.BEST);
 		byte[] sharedSecret = curve25519.calculateAgreement(remotePubKey, ourKeyPair.getPrivate().getEncoded());
 		
-		byte[] localSessionId = randSessionIdGen.nextString().getBytes();
-		
-		SecretKeySpec aesKey = createKeySpec(sharedSecret, ourKeyPair, remotePubKey, remoteSessionId.getBytes(), localSessionId);
+		String localNonce = UUID.randomUUID().toString();
+		SecretKeySpec aesKey = createKeySpec(sharedSecret, localNonce, remoteNonce);
 	    
-        /*
-         * encrypt using AES in CBC mode
-         */
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, aesKey);
-        byte[] ciphertext = cipher.doFinal(message);
+		/*
+		 * encrypt using AES in CBC mode
+		 */
+		Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+		cipher.init(Cipher.ENCRYPT_MODE, aesKey);
+		byte[] ciphertext = cipher.doFinal(message);
 
-        // Retrieve the parameter that was used. It needs to be transfered to
-        // remote party in encoded format
-        byte[] encodedParams = cipher.getParameters().getEncoded();
+		// Retrieve the parameter that was used. It needs to be transfered to
+		// remote party in encoded format
+		byte[] encodedParams = cipher.getParameters().getEncoded();
+
+		CryptoObject object = new CryptoObject();
         
-        CryptoObject object = new CryptoObject();
-        
-        object.setEncryptedData(ciphertext);
-        object.setParameter(encodedParams);
-        object.setLocalSessionId(localSessionId);
+		object.setEncryptedData(ciphertext);
+		object.setParameter(encodedParams);
+		object.setNonce(localNonce.toString());
 		
 		return object;
 	}
-	
-	/**
-	 * Decrypt message set in the object.
-	 * 
-	 * @param object
-	 * @param ourKeyPair
-	 * @param encodedRemotePubKey
-	 * @return
-	 * @throws NoSuchAlgorithmException
-	 * @throws NoSuchPaddingException
-	 * @throws InvalidKeyException
-	 * @throws BadPaddingException
-	 * @throws InvalidAlgorithmParameterException
-	 * @throws IllegalBlockSizeException
-	 * @throws IOException
+
+	/* (non-Javadoc)
+	 * @see com.ctpl.finvu.common.security.auth.dh.EncryptUtil#decrypt(java.lang.String, java.lang.String)
 	 */
-	public byte[] decrypt(CryptoObject object, KeyPair ourKeyPair, String encodedRemotePubKey)
+	@Override
+	public byte[] decrypt(CryptoObject object, KeyPair ourKeyPair, String encodedRemotePubKey, String localNonce)
 			throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, BadPaddingException,
 			InvalidAlgorithmParameterException, IllegalBlockSizeException, IOException {
 		
@@ -148,40 +115,39 @@ public class Curve25519EncryptUtil {
 		// calculate shared secret.
 		Curve25519 curve25519 = Curve25519.getInstance(Curve25519.BEST);
 		byte[] sharedSecret = curve25519.calculateAgreement(remotePubKey, ourKeyPair.getPrivate().getEncoded());
+		SecretKeySpec aesKey = createKeySpec(sharedSecret, localNonce, object.getNonce());
 		
-		SecretKeySpec aesKey = createKeySpec(sharedSecret, ourKeyPair, remotePubKey, object.getLocalSessionId(), object.getRemoteSessionId());
-		
-        /*
-         * decrypt using AES in CBC mode
-         */
-        AlgorithmParameters aesParams = AlgorithmParameters.getInstance("AES");
-        aesParams.init(object.getParameter());
-		
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        cipher.init(Cipher.DECRYPT_MODE, aesKey, aesParams);
-        return cipher.doFinal(object.getEncryptedData());
+		/*
+		 * decrypt using AES in CBC mode
+		 */
+		AlgorithmParameters aesParams = AlgorithmParameters.getInstance("AES");
+		aesParams.init(object.getParameter());
+
+		Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+		cipher.init(Cipher.DECRYPT_MODE, aesKey, aesParams);
+		return cipher.doFinal(object.getEncryptedData());
 	}
 	
 	private byte[] decode(String value) {
 		return Base64.getDecoder().decode(value);
 	}
 	
-	private SecretKeySpec createKeySpec(byte[] sharedSecret, KeyPair ourKeyPair, byte[] remotePubKey, byte[] remoteSessionId, byte[] localSessionId) throws NoSuchAlgorithmException {
+	private SecretKeySpec createKeySpec(byte[] sharedSecret, String localNonce,
+			String remoteNonce) throws NoSuchAlgorithmException {
 		 // Derive a key from the shared secret and both public keys
 	    MessageDigest hash = MessageDigest.getInstance("SHA-256");
 	    hash.update(sharedSecret);
-	    // Simple deterministic ordering
-		List<ByteBuffer> keys = Arrays.asList(ByteBuffer.wrap(ourKeyPair.getPublic().getEncoded()),
-				ByteBuffer.wrap(remotePubKey));
+	    // Simple deterministic ordering, to ensure same order of nonce is used
+	    // when calculating the key for both encrypt and decrypt.	   
+		List<ByteBuffer> keys = Arrays.asList(ByteBuffer.wrap(localNonce.getBytes()),
+				ByteBuffer.wrap(remoteNonce.getBytes()));
 	    Collections.sort(keys);
 	    hash.update(keys.get(0));
 	    hash.update(keys.get(1));
-	    hash.update(remoteSessionId);
-	    hash.update(localSessionId);
 
 	    byte[] derivedKey = hash.digest();
 	    
-	    SecretKeySpec aesKey = new SecretKeySpec(derivedKey, 0, 16, "AES");
+	    SecretKeySpec aesKey = new SecretKeySpec(derivedKey, 0, 32, "AES");
 	    return aesKey;
 	}
 }
